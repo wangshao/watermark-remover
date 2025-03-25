@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>一键去水印</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      margin-top: 10px;
+      cursor: crosshair;
+    }
+    #controls {
+      margin-top: 10px;
+    }
+    button {
+      margin-right: 10px;
+      padding: 5px 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>一键去水印</h1>
+  <p>
+    1. 上传图片。<br>
+    2. 点击图片中水印的位置（程序会以固定半径自动标记水印区域）。<br>
+    3. 点击“去除水印”按钮进行处理。<br>
+    4. 如需重新标记，请点击“重置”按钮。
+  </p>
+  <input type="file" id="imageUpload" accept="image/*">
+  <br>
+  <canvas id="canvas"></canvas>
+  <div id="controls">
+    <button id="removeBtn" disabled>去除水印</button>
+    <button id="resetBtn" disabled>重置</button>
+  </div>
+
+  <!-- 加载 OpenCV.js -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();"></script>
+  <script>
+    let imgElement = null;
+    let canvas = document.getElementById('canvas');
+    let ctx = canvas.getContext('2d');
+    let removeBtn = document.getElementById('removeBtn');
+    let resetBtn = document.getElementById('resetBtn');
+    let imgMat = null;
+    let maskMat = null;
+    // 预设水印区域的半径（可根据实际情况调整）
+    const radius = 50;
+
+    // OpenCV.js 初始化回调
+    let cvReady = false;
+    function onOpenCvReady() {
+      cvReady = true;
+      console.log("OpenCV.js 加载完成");
+    }
+
+    // 处理图片上传
+    document.getElementById('imageUpload').addEventListener('change', function(e) {
+      if (e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          imgElement = new Image();
+          imgElement.onload = function() {
+            // 设置画布尺寸与图片一致
+            canvas.width = imgElement.width;
+            canvas.height = imgElement.height;
+            // 在画布上绘制图片
+            ctx.drawImage(imgElement, 0, 0);
+            // 利用 OpenCV 从画布读取图片数据
+            imgMat = cv.imread(canvas);
+            // 创建与图片同尺寸的单通道遮罩，初始全为 0（黑色）
+            maskMat = new cv.Mat.zeros(imgMat.rows, imgMat.cols, cv.CV_8UC1);
+            removeBtn.disabled = false;
+            resetBtn.disabled = false;
+          }
+          imgElement.src = event.target.result;
+        }
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // 当点击画布时，以点击位置为中心绘制一个圆形区域标记水印区域
+    canvas.addEventListener('click', function(e) {
+      if (!imgMat) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      // 在预览图上绘制红色圆形边框（便于用户观察选区）
+      ctx.beginPath();
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 3;
+      ctx.arc(x, y, radius, 0, 2 * Math.PI);
+      ctx.stroke();
+
+      // 在遮罩上绘制白色实心圆（区域值设为255）
+      let center = new cv.Point(x, y);
+      cv.circle(maskMat, center, radius, new cv.Scalar(255), -1);
+    });
+
+    // 点击“去除水印”按钮，利用 inpainting 算法处理图片
+    removeBtn.addEventListener('click', function() {
+      if (!cvReady || !imgMat || !maskMat) return;
+      let dst = new cv.Mat();
+      // inpaint 参数：源图、遮罩、修复半径、算法（此处采用 Telea 算法）
+      cv.inpaint(imgMat, maskMat, dst, 3, cv.INPAINT_TELEA);
+      cv.imshow(canvas, dst);
+      dst.delete();
+    });
+
+    // 点击“重置”按钮，恢复原图并清空遮罩
+    resetBtn.addEventListener('click', function() {
+      if (!imgElement) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(imgElement, 0, 0);
+      if (maskMat) {
+        maskMat.setTo(new cv.Scalar(0));
+      }
+    });
+  </script>
+</body>
+</html>
