@@ -16,14 +16,63 @@
     #controls {
       margin-top: 10px;
     }
-    button {
+    button, select, input {
       margin-right: 10px;
       padding: 5px 10px;
+    }
+    #maskTools {
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+    .tool-option {
+      display: inline-block;
+      margin-right: 15px;
+      vertical-align: middle;
+    }
+    #algorithmOptions {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background-color: #f8f8f8;
+    }
+    .algorithm-param {
+      margin: 8px 0;
+    }
+    #loadingOverlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+    .spinner {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #3498db;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+    .loading-text {
+      color: white;
+      font-size: 18px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
   </style>
 </head>
 <body>
   <h1>一键去水印</h1>
+  <p id="status">OpenCV.js is loading...</p>
   <p>
     1. 上传图片。<br>
     2. 点击图片中水印的位置（程序会以固定半径自动标记水印区域）。<br>
@@ -34,33 +83,136 @@
   <br>
   <canvas id="canvas"></canvas>
   <div id="controls">
-    <button id="removeBtn" disabled>去除水印</button>
-    <button id="resetBtn" disabled>重置</button>
+    <div id="maskTools">
+      <div class="tool-option">
+        <label for="brushSize">刷子大小:</label>
+        <input type="range" id="brushSize" min="1" max="50" value="10">
+        <span id="brushSizeValue">10px</span>
+      </div>
+      <div class="tool-option">
+        <label for="markMode">标记模式:</label>
+        <select id="markMode">
+          <option value="brush">画笔标记</option>
+          <option value="circle">圆形标记</option>
+        </select>
+      </div>
+    </div>
+    <div>
+      <select id="algorithm">
+        <option value="inpaint">修复填充 (Inpaint)</option>
+        <option value="alphablend">透明度混合</option>
+        <option value="texturesynth">纹理合成</option>
+        <option value="medianBlur">中值滤波</option>
+      </select>
+      <div id="algorithmOptions">
+        <div id="inpaintOptions" class="algorithm-options">
+          <div class="algorithm-param">
+            <label for="inpaintRadius">修复半径:</label>
+            <input type="range" id="inpaintRadius" min="1" max="20" value="3">
+            <span id="inpaintRadiusValue">3</span>
+          </div>
+          <div class="algorithm-param">
+            <label for="inpaintMethod">修复方法:</label>
+            <select id="inpaintMethod">
+              <option value="cv.INPAINT_TELEA">Telea算法</option>
+              <option value="cv.INPAINT_NS">Navier-Stokes算法</option>
+            </select>
+          </div>
+        </div>
+        <div id="alphablendOptions" class="algorithm-options" style="display:none;">
+          <div class="algorithm-param">
+            <label for="blendStrength">混合强度:</label>
+            <input type="range" id="blendStrength" min="1" max="100" value="50">
+            <span id="blendStrengthValue">50%</span>
+          </div>
+          <div class="algorithm-param">
+            <label for="samplingRadius">采样半径:</label>
+            <input type="range" id="samplingRadius" min="5" max="50" value="20">
+            <span id="samplingRadiusValue">20px</span>
+          </div>
+        </div>
+        <div id="medianBlurOptions" class="algorithm-options" style="display:none;">
+          <div class="algorithm-param">
+            <label for="kernelSize">核大小:</label>
+            <select id="kernelSize">
+              <option value="3">3x3</option>
+              <option value="5">5x5</option>
+              <option value="7">7x7</option>
+              <option value="9">9x9</option>
+            </select>
+          </div>
+          <div class="algorithm-param">
+            <label for="iterations">迭代次数:</label>
+            <input type="range" id="iterations" min="1" max="5" value="1">
+            <span id="iterationsValue">1</span>
+          </div>
+        </div>
+        <div id="textureSynthOptions" class="algorithm-options" style="display:none;">
+          <div class="algorithm-param">
+            <label for="patchSize">纹理块大小:</label>
+            <input type="range" id="patchSize" min="3" max="11" value="5" step="2">
+            <span id="patchSizeValue">5x5</span>
+          </div>
+          <div class="algorithm-param">
+            <label for="searchSize">搜索范围:</label>
+            <input type="range" id="searchSize" min="10" max="50" value="25">
+            <span id="searchSizeValue">25px</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 10px;">
+      <button id="removeBtn" disabled>去除水印</button>
+      <button id="resetBtn" disabled>重置</button>
+      <button id="clearMaskBtn" disabled>清除标记</button>
+    </div>
+  </div>
+
+  <!-- 加载中提示 -->
+  <div id="loadingOverlay">
+    <div class="spinner"></div>
+    <div class="loading-text">处理中...请稍候</div>
   </div>
 
   <!-- 加载 OpenCV.js -->
-  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();"></script>
   <script>
+    // 声明变量
     let imgElement = null;
     let canvas = document.getElementById('canvas');
     let ctx = canvas.getContext('2d');
     let removeBtn = document.getElementById('removeBtn');
     let resetBtn = document.getElementById('resetBtn');
+    let clearMaskBtn = document.getElementById('clearMaskBtn');
     let imgMat = null;
     let maskMat = null;
-    // 预设水印区域的半径（可根据实际情况调整）
-    const radius = 50;
-
-    // OpenCV.js 初始化回调
     let cvReady = false;
-    function onOpenCvReady() {
-      cvReady = true;
-      console.log("OpenCV.js 加载完成");
-    }
-
+    // 画笔相关变量
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+    
+    // 画笔设置
+    const brushSizeSlider = document.getElementById('brushSize');
+    const brushSizeValue = document.getElementById('brushSizeValue');
+    const markModeSelect = document.getElementById('markMode');
+    
+    // 更新画笔大小显示
+    brushSizeSlider.addEventListener('input', function() {
+      brushSizeValue.textContent = this.value + 'px';
+    });
+    
     // 处理图片上传
     document.getElementById('imageUpload').addEventListener('change', function(e) {
       if (e.target.files && e.target.files[0]) {
+        // 释放旧的 Mat 对象
+        if (imgMat) {
+          imgMat.delete();
+          imgMat = null;
+        }
+        if (maskMat) {
+          maskMat.delete();
+          maskMat = null;
+        }
         const file = e.target.files[0];
         const reader = new FileReader();
         reader.onload = function(event) {
@@ -71,12 +223,18 @@
             canvas.height = imgElement.height;
             // 在画布上绘制图片
             ctx.drawImage(imgElement, 0, 0);
-            // 利用 OpenCV 从画布读取图片数据
-            imgMat = cv.imread(canvas);
-            // 创建与图片同尺寸的单通道遮罩，初始全为 0（黑色）
-            maskMat = new cv.Mat.zeros(imgMat.rows, imgMat.cols, cv.CV_8UC1);
-            removeBtn.disabled = false;
-            resetBtn.disabled = false;
+            try {
+                // 利用 OpenCV 从画布读取图片数据
+                imgMat = cv.imread(canvas);
+                // 创建与图片同尺寸的单通道遮罩，初始全为 0（黑色）
+                maskMat = new cv.Mat.zeros(imgMat.rows, imgMat.cols, cv.CV_8UC1);
+                removeBtn.disabled = false;
+                resetBtn.disabled = false;
+                clearMaskBtn.disabled = false;
+              } catch (e) {
+                console.error('OpenCV 处理图像失败:', e);
+                alert('图像处理失败，请重试');
+              };
           }
           imgElement.src = event.target.result;
         }
@@ -84,35 +242,602 @@
       }
     });
 
-    // 当点击画布时，以点击位置为中心绘制一个圆形区域标记水印区域
-    canvas.addEventListener('click', function(e) {
-      if (!imgMat) return;
+    // 开始绘制
+    function startDrawing(e) {
+      if (!imgMat || !maskMat) return;
+      isDrawing = true;
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      lastX = e.clientX - rect.left;
+      lastY = e.clientY - rect.top;
       
-      // 在预览图上绘制红色圆形边框（便于用户观察选区）
+      // 如果是圆形标记模式，直接绘制圆形
+      if (markModeSelect.value === 'circle') {
+        const brushSize = parseInt(brushSizeSlider.value);
+        // 在预览图上绘制红色圆形边框（便于用户观察选区）
+        ctx.beginPath();
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 2;
+        ctx.arc(lastX, lastY, brushSize, 0, 2 * Math.PI);
+        ctx.stroke();
+        
+        // 在遮罩上绘制白色实心圆（区域值设为255）
+        let center = new cv.Point(lastX, lastY);
+        cv.circle(maskMat, center, brushSize, new cv.Scalar(255), -1);
+      }
+    }
+    
+    // 结束绘制
+    function stopDrawing() {
+      isDrawing = false;
+    }
+    
+    // 绘制
+    function draw(e) {
+      if (!isDrawing || !imgMat || !maskMat || markModeSelect.value !== 'brush') return;
+      
+      const rect = canvas.getBoundingClientRect();
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
+      
+      // 画笔模式 - 画笔大小
+      const brushSize = parseInt(brushSizeSlider.value);
+      
+      // 在画布上绘制红色线条
       ctx.beginPath();
       ctx.strokeStyle = 'red';
-      ctx.lineWidth = 3;
-      ctx.arc(x, y, radius, 0, 2 * Math.PI);
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(currentX, currentY);
       ctx.stroke();
+      
+      // 在遮罩上绘制白色线条
+      let point1 = new cv.Point(lastX, lastY);
+      let point2 = new cv.Point(currentX, currentY);
+      cv.line(maskMat, point1, point2, new cv.Scalar(255), brushSize);
+      
+      lastX = currentX;
+      lastY = currentY;
+    }
+    
+    // 添加绘制事件监听
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseleave', stopDrawing);
 
-      // 在遮罩上绘制白色实心圆（区域值设为255）
-      let center = new cv.Point(x, y);
-      cv.circle(maskMat, center, radius, new cv.Scalar(255), -1);
+    // 清除标记按钮
+    clearMaskBtn.addEventListener('click', function() {
+      if (!imgMat || !maskMat) return;
+      
+      // 清除画布上的标记
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(imgElement, 0, 0);
+      
+      // 清除遮罩
+      maskMat.setTo(new cv.Scalar(0));
     });
 
-    // 点击“去除水印”按钮，利用 inpainting 算法处理图片
-    removeBtn.addEventListener('click', function() {
-      if (!cvReady || !imgMat || !maskMat) return;
-      let dst = new cv.Mat();
-      // inpaint 参数：源图、遮罩、修复半径、算法（此处采用 Telea 算法）
-      cv.inpaint(imgMat, maskMat, dst, 3, cv.INPAINT_TELEA);
-      cv.imshow(canvas, dst);
-      dst.delete();
+    // 刷新算法选项显示
+    function updateAlgorithmOptions() {
+      const algorithm = document.getElementById('algorithm').value;
+      document.querySelectorAll('.algorithm-options').forEach(el => {
+        el.style.display = 'none';
+      });
+      
+      if (algorithm === 'inpaint') {
+        document.getElementById('inpaintOptions').style.display = 'block';
+      } else if (algorithm === 'alphablend') {
+        document.getElementById('alphablendOptions').style.display = 'block';
+      } else if (algorithm === 'medianBlur') {
+        document.getElementById('medianBlurOptions').style.display = 'block';
+      } else if (algorithm === 'texturesynth') {
+        document.getElementById('textureSynthOptions').style.display = 'block';
+      }
+    }
+    
+    // 监听算法选择变更
+    document.getElementById('algorithm').addEventListener('change', updateAlgorithmOptions);
+    
+    // 更新半径和其他参数值显示
+    document.getElementById('inpaintRadius').addEventListener('input', function() {
+      document.getElementById('inpaintRadiusValue').textContent = this.value;
     });
-
+    
+    document.getElementById('blendStrength').addEventListener('input', function() {
+      document.getElementById('blendStrengthValue').textContent = this.value + '%';
+    });
+    
+    document.getElementById('samplingRadius').addEventListener('input', function() {
+      document.getElementById('samplingRadiusValue').textContent = this.value + 'px';
+    });
+    
+    document.getElementById('iterations').addEventListener('input', function() {
+      document.getElementById('iterationsValue').textContent = this.value;
+    });
+    
+    document.getElementById('patchSize').addEventListener('input', function() {
+      document.getElementById('patchSizeValue').textContent = this.value + 'x' + this.value;
+    });
+    
+    document.getElementById('searchSize').addEventListener('input', function() {
+      document.getElementById('searchSizeValue').textContent = this.value + 'px';
+    });
+    
+    // 初始化显示算法选项
+    updateAlgorithmOptions();
+    
+    // 点击"去除水印"按钮，根据选择的算法处理图片
+    removeBtn.addEventListener('click', async function() {
+      if (!imgMat || !maskMat) return;
+      
+      try {
+        // 显示加载中提示
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        loadingOverlay.style.display = 'flex';
+        
+        // 等待一帧使得屏幕刷新
+        await new Promise(resolve => setTimeout(resolve, 10));
+        
+        // 检查图片和遮罩的尺寸是否一致
+        if (imgMat.rows !== maskMat.rows || imgMat.cols !== maskMat.cols) {
+          alert("图片和遮罩的尺寸不一致");
+          loadingOverlay.style.display = 'none';
+          return;
+        }
+        
+        // 检查遮罩是否包含有效值（非零值）
+        let nonZeroCount = cv.countNonZero(maskMat);
+        if (nonZeroCount === 0) {
+          alert("请先在图片上标记需要处理的水印区域");
+          loadingOverlay.style.display = 'none';
+          return;
+        }
+        
+        // 先复制一份原图，避免直接修改原图
+        let resultMat = imgMat.clone();
+        
+        // 获取选择的算法和参数
+        const algorithm = document.getElementById('algorithm').value;
+        
+        if (algorithm === 'inpaint') {
+          // 确保源图像格式正确
+          let srcMat = imgMat.clone();
+          if (imgMat.type() === cv.CV_8UC1) {
+            // 灰度图，转换为 RGB
+            cv.cvtColor(imgMat, srcMat, cv.COLOR_GRAY2RGB);
+          } else if (imgMat.type() === cv.CV_8UC4) {
+            // RGBA 图像，转换为 RGB
+            cv.cvtColor(imgMat, srcMat, cv.COLOR_RGBA2RGB);
+          }
+          
+          // 确保遮罩的类型为 8UC1
+          let fixedMask = new cv.Mat();
+          if (maskMat.type() !== cv.CV_8UC1) {
+            // 转换为单通道灰度图
+            cv.cvtColor(maskMat, fixedMask, cv.COLOR_RGBA2GRAY);
+          } else {
+            // 已经是单通道，直接复制
+            maskMat.copyTo(fixedMask);
+          }
+          
+          // 获取修复半径和方法
+          const radius = parseInt(document.getElementById('inpaintRadius').value);
+          const methodElement = document.getElementById('inpaintMethod');
+          const methodValue = methodElement.value;
+          let inpaintMethod;
+          if (methodValue === 'cv.INPAINT_TELEA') {
+            inpaintMethod = cv.INPAINT_TELEA;
+          } else {
+            inpaintMethod = cv.INPAINT_NS;
+          }
+          
+          // 创建结果 Mat
+          let dst = new cv.Mat();
+          
+          // 进行图像修复
+          cv.inpaint(srcMat, fixedMask, dst, radius, inpaintMethod);
+          
+          // 显示结果
+          cv.imshow(canvas, dst);
+          
+          // 释放内存
+          srcMat.delete();
+          fixedMask.delete();
+          dst.delete();
+          
+        } else if (algorithm === 'medianBlur') {
+          // 中值滤波 - 只对遮罩区域应用
+          let dst = new cv.Mat();
+          resultMat.copyTo(dst);
+          
+          // 获取核大小和迭代次数
+          const ksize = parseInt(document.getElementById('kernelSize').value);
+          const iterations = parseInt(document.getElementById('iterations').value);
+          
+          // 创建 ROI 遮罩
+          let roi = new cv.Mat();
+          cv.threshold(maskMat, roi, 1, 255, cv.THRESH_BINARY);
+          
+          // 只在 ROI 区域应用中值滤波
+          let tempMat = new cv.Mat();
+          
+          for (let i = 0; i < iterations; i++) {
+            // 应用中值滤波
+            cv.medianBlur(dst, tempMat, ksize);
+            
+            // 只保留遮罩区域的滤波结果
+            tempMat.copyTo(dst, roi);
+          }
+          
+          // 显示结果
+          cv.imshow(canvas, dst);
+          
+          // 释放内存
+          dst.delete();
+          roi.delete();
+          tempMat.delete();
+          
+        } else if (algorithm === 'alphablend') {
+          // 透明度混合算法 - 针对半透明水印
+          const blendStrength = parseInt(document.getElementById('blendStrength').value) / 100;
+          const samplingRadius = parseInt(document.getElementById('samplingRadius').value);
+          
+          // 创建结果 Mat
+          let dst = new cv.Mat();
+          resultMat.copyTo(dst);
+          
+          // 获取遮罩中有水印的像素坐标
+          let watermarkPixels = [];
+          
+          // 优化：下采样2x2，减少处理的像素数量
+          const SAMPLE_STEP = 2;
+          for (let i = 0; i < maskMat.rows; i += SAMPLE_STEP) {
+            for (let j = 0; j < maskMat.cols; j += SAMPLE_STEP) {
+              if (maskMat.ucharPtr(i, j)[0] > 0) {
+                watermarkPixels.push({y: i, x: j});
+              }
+            }
+          }
+          
+          // 进度更新函数
+          const totalPixels = watermarkPixels.length;
+          let processedPixels = 0;
+          const updateInterval = Math.max(1, Math.floor(totalPixels / 10)); // 每10%更新一次
+          
+          // 创建像素值缓存，避免重复计算
+          const sampleCache = new Map();
+          
+          // 对每个水印像素进行处理
+          for (let pixelIndex = 0; pixelIndex < watermarkPixels.length; pixelIndex++) {
+            const pixel = watermarkPixels[pixelIndex];
+            
+            // 更新进度
+            processedPixels++;
+            if (processedPixels % updateInterval === 0) {
+              const percent = Math.round(processedPixels / totalPixels * 100);
+              document.querySelector('.loading-text').textContent = 
+                `处理中...${percent}%`;
+              // 允许UI更新
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
+            
+            // 计算采样区域（避开水印区域）
+            let samples = [];
+            let totalWeight = 0;
+            
+            // 采样步长
+            const RADIUS_STEP = 2;
+            
+            // 在周围区域采样
+            for (let y = Math.max(0, pixel.y - samplingRadius); y < Math.min(maskMat.rows, pixel.y + samplingRadius); y += RADIUS_STEP) {
+              for (let x = Math.max(0, pixel.x - samplingRadius); x < Math.min(maskMat.cols, pixel.x + samplingRadius); x += RADIUS_STEP) {
+                // 跳过水印区域的像素
+                if (maskMat.ucharPtr(y, x)[0] > 0) continue;
+                
+                // 计算距离权重
+                let dist = Math.sqrt(Math.pow(y - pixel.y, 2) + Math.pow(x - pixel.x, 2));
+                if (dist > 0 && dist <= samplingRadius) {
+                  let weight = 1 / dist;
+                  totalWeight += weight;
+                  
+                  // 获取像素值
+                  let pixelValue = imgMat.ucharPtr(y, x);
+                  samples.push({
+                    r: pixelValue[0],
+                    g: pixelValue[1],
+                    b: pixelValue[2],
+                    weight: weight
+                  });
+                }
+              }
+            }
+            
+            // 如果找到有效采样
+            if (samples.length > 0 && totalWeight > 0) {
+              // 计算加权平均值
+              let r = 0, g = 0, b = 0;
+              for (let sample of samples) {
+                r += sample.r * sample.weight / totalWeight;
+                g += sample.g * sample.weight / totalWeight;
+                b += sample.b * sample.weight / totalWeight;
+              }
+              
+              // 获取原始像素值
+              let origPixel = imgMat.ucharPtr(pixel.y, pixel.x);
+              
+              // 混合原始像素和采样结果
+              let dstPixel = dst.ucharPtr(pixel.y, pixel.x);
+              dstPixel[0] = Math.round(origPixel[0] * (1 - blendStrength) + r * blendStrength);
+              dstPixel[1] = Math.round(origPixel[1] * (1 - blendStrength) + g * blendStrength);
+              dstPixel[2] = Math.round(origPixel[2] * (1 - blendStrength) + b * blendStrength);
+              
+              // 同时更新相邻像素（如果它们也是水印区域）
+              for (let dy = 0; dy < SAMPLE_STEP && pixel.y+dy < dst.rows; dy++) {
+                for (let dx = 0; dx < SAMPLE_STEP && pixel.x+dx < dst.cols; dx++) {
+                  if (dx === 0 && dy === 0) continue; // 跳过当前像素
+                  
+                  if (maskMat.ucharPtr(pixel.y+dy, pixel.x+dx)[0] > 0) {
+                    let neighborPixel = imgMat.ucharPtr(pixel.y+dy, pixel.x+dx);
+                    let dstNeighborPixel = dst.ucharPtr(pixel.y+dy, pixel.x+dx);
+                    
+                    dstNeighborPixel[0] = Math.round(neighborPixel[0] * (1 - blendStrength) + r * blendStrength);
+                    dstNeighborPixel[1] = Math.round(neighborPixel[1] * (1 - blendStrength) + g * blendStrength);
+                    dstNeighborPixel[2] = Math.round(neighborPixel[2] * (1 - blendStrength) + b * blendStrength);
+                  }
+                }
+              }
+            }
+          }
+          
+          // 显示结果
+          cv.imshow(canvas, dst);
+          
+          // 释放内存
+          dst.delete();
+          
+        } else if (algorithm === 'texturesynth') {
+          // 纹理合成算法 - 尝试恢复背景纹理
+          const patchSize = parseInt(document.getElementById('patchSize').value);
+          const searchSize = parseInt(document.getElementById('searchSize').value);
+          
+          // 创建结果 Mat
+          let dst = new cv.Mat();
+          resultMat.copyTo(dst);
+          
+          // 下采样步长
+          const REGION_STEP = 4;
+          
+          // 获取有水印的区域
+          let watermarkRegions = [];
+          let visited = new Array(maskMat.rows).fill(0).map(() => new Array(maskMat.cols).fill(false));
+          
+          for (let i = 0; i < maskMat.rows; i += REGION_STEP) {
+            for (let j = 0; j < maskMat.cols; j += REGION_STEP) {
+              if (maskMat.ucharPtr(i, j)[0] > 0 && !visited[i][j]) {
+                // 找到一个水印点，扩展区域
+                let region = {minY: i, maxY: i, minX: j, maxX: j};
+                let stack = [{y: i, x: j}];
+                visited[i][j] = true;
+                
+                while (stack.length > 0) {
+                  let current = stack.pop();
+                  
+                  // 检查四周的点
+                  const directions = [
+                    {dy: -REGION_STEP, dx: 0}, {dy: REGION_STEP, dx: 0}, 
+                    {dy: 0, dx: -REGION_STEP}, {dy: 0, dx: REGION_STEP}
+                  ];
+                  
+                  for (let dir of directions) {
+                    let ny = current.y + dir.dy;
+                    let nx = current.x + dir.dx;
+                    
+                    if (ny >= 0 && ny < maskMat.rows && nx >= 0 && nx < maskMat.cols && 
+                        maskMat.ucharPtr(ny, nx)[0] > 0 && !visited[ny][nx]) {
+                      stack.push({y: ny, x: nx});
+                      visited[ny][nx] = true;
+                      
+                      // 更新区域边界
+                      region.minY = Math.min(region.minY, ny);
+                      region.maxY = Math.max(region.maxY, ny);
+                      region.minX = Math.min(region.minX, nx);
+                      region.maxX = Math.max(region.maxX, nx);
+                    }
+                  }
+                }
+                
+                // 保存找到的区域
+                watermarkRegions.push(region);
+              }
+            }
+          }
+          
+          // 进度更新
+          let totalRegions = watermarkRegions.length;
+          let processedRegions = 0;
+          
+          // 对每个水印区域进行纹理合成
+          for (let regionIndex = 0; regionIndex < watermarkRegions.length; regionIndex++) {
+            const region = watermarkRegions[regionIndex];
+            
+            // 更新进度
+            processedRegions++;
+            document.querySelector('.loading-text').textContent = 
+              `处理区域 ${processedRegions}/${totalRegions}`;
+            await new Promise(resolve => setTimeout(resolve, 0));
+            
+            // 扩展区域，确保有足够的上下文
+            let paddedRegion = {
+              minY: Math.max(0, region.minY - patchSize),
+              maxY: Math.min(maskMat.rows - 1, region.maxY + patchSize),
+              minX: Math.max(0, region.minX - patchSize),
+              maxX: Math.min(maskMat.cols - 1, region.maxX + patchSize)
+            };
+            
+            // 获取区域内的非水印像素作为参考
+            document.querySelector('.loading-text').textContent = 
+              `提取区域 ${processedRegions}/${totalRegions} 的参考样本`;
+            await new Promise(resolve => setTimeout(resolve, 0));
+            
+            let refPatches = [];
+            const PATCH_STEP = 3; // 增加步长减少样本数量
+            
+            for (let y = paddedRegion.minY; y <= paddedRegion.maxY - patchSize + 1; y += PATCH_STEP) {
+              for (let x = paddedRegion.minX; x <= paddedRegion.maxX - patchSize + 1; x += PATCH_STEP) {
+                // 检查这个区域是否不包含水印
+                let hasWatermark = false;
+                patchCheck:
+                for (let py = 0; py < patchSize; py += 2) { // 跳步检查以加速
+                  for (let px = 0; px < patchSize; px += 2) {
+                    if (maskMat.ucharPtr(y + py, x + px)[0] > 0) {
+                      hasWatermark = true;
+                      break patchCheck;
+                    }
+                  }
+                }
+                
+                if (!hasWatermark) {
+                  // 提取这个块作为参考 (只记录中心点)
+                  refPatches.push({y, x});
+                }
+              }
+            }
+            
+            // 如果没有找到参考块，跳过此区域
+            if (refPatches.length === 0) continue;
+            
+            // 对区域内的每个水印像素，寻找最佳匹配的非水印区域
+            document.querySelector('.loading-text').textContent = 
+              `合成区域 ${processedRegions}/${totalRegions}`;
+            await new Promise(resolve => setTimeout(resolve, 0));
+            
+            const PIXEL_STEP = 2; // 增加步长减少处理的像素数量
+            let pixelCount = 0;
+            let totalPixels = Math.ceil((region.maxY - region.minY) / PIXEL_STEP) * 
+                             Math.ceil((region.maxX - region.minX) / PIXEL_STEP);
+            
+            for (let y = region.minY; y <= region.maxY; y += PIXEL_STEP) {
+              for (let x = region.minX; x <= region.maxX; x += PIXEL_STEP) {
+                pixelCount++;
+                
+                // 定期更新进度
+                if (pixelCount % 100 === 0) {
+                  let percent = Math.round(pixelCount / totalPixels * 100);
+                  document.querySelector('.loading-text').textContent = 
+                    `合成区域 ${processedRegions}/${totalRegions}: ${percent}%`;
+                  await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                
+                if (maskMat.ucharPtr(y, x)[0] > 0) {
+                  // 找出最佳匹配的参考块
+                  let bestMatch = null;
+                  let minDiff = Infinity;
+                  
+                  // 只使用部分参考块以加速计算
+                  const MAX_REF_SAMPLES = 20;
+                  const refSamples = refPatches.length <= MAX_REF_SAMPLES ? 
+                      refPatches : refPatches.filter((_, i) => i % Math.ceil(refPatches.length / MAX_REF_SAMPLES) === 0);
+                  
+                  for (let refPatch of refSamples) {
+                    // 计算窗口内的平均颜色差异
+                    const halfWindow = Math.floor(patchSize / 2);
+                    let totalDiff = 0;
+                    let sampleCount = 0;
+                    
+                    // 只抽样检查周围的一些点
+                    for (let wy = -halfWindow; wy <= halfWindow; wy += 2) {
+                      for (let wx = -halfWindow; wx <= halfWindow; wx += 2) {
+                        let ny = y + wy;
+                        let nx = x + wx;
+                        
+                        // 检查是否在图像范围内且不是水印
+                        if (ny >= 0 && ny < maskMat.rows && nx >= 0 && nx < maskMat.cols && 
+                            maskMat.ucharPtr(ny, nx)[0] === 0) {
+                          
+                          // 找到参考块中对应的位置
+                          let refY = refPatch.y + (wy + halfWindow);
+                          let refX = refPatch.x + (wx + halfWindow);
+                          
+                          // 确保参考位置在范围内
+                          if (refY >= 0 && refY < maskMat.rows && refX >= 0 && refX < maskMat.cols) {
+                            let imgPixel = imgMat.ucharPtr(ny, nx);
+                            let refPixel = imgMat.ucharPtr(refY, refX);
+                            
+                            // 计算颜色差异
+                            let diff = Math.abs(imgPixel[0] - refPixel[0]) + 
+                                      Math.abs(imgPixel[1] - refPixel[1]) + 
+                                      Math.abs(imgPixel[2] - refPixel[2]);
+                            totalDiff += diff;
+                            sampleCount++;
+                          }
+                        }
+                      }
+                    }
+                    
+                    // 计算平均差异
+                    if (sampleCount > 0) {
+                      let avgDiff = totalDiff / sampleCount;
+                      if (avgDiff < minDiff) {
+                        minDiff = avgDiff;
+                        bestMatch = refPatch;
+                      }
+                    }
+                  }
+                  
+                  // 如果找到最佳匹配，复制对应像素
+                  if (bestMatch) {
+                    let centerOffsetY = y - (bestMatch.y + Math.floor(patchSize / 2));
+                    let centerOffsetX = x - (bestMatch.x + Math.floor(patchSize / 2));
+                    
+                    // 从最佳匹配块中找到对应位置的像素
+                    let matchY = bestMatch.y + Math.floor(patchSize / 2) + centerOffsetY;
+                    let matchX = bestMatch.x + Math.floor(patchSize / 2) + centerOffsetX;
+                    
+                    // 确保位置在范围内
+                    if (matchY >= 0 && matchY < maskMat.rows && matchX >= 0 && matchX < maskMat.cols) {
+                      let matchPixel = imgMat.ucharPtr(matchY, matchX);
+                      
+                      // 对当前像素和下采样的范围内所有水印像素应用相同的修复
+                      for (let dy = 0; dy < PIXEL_STEP && y+dy < dst.rows; dy++) {
+                        for (let dx = 0; dx < PIXEL_STEP && x+dx < dst.cols; dx++) {
+                          if (maskMat.ucharPtr(y+dy, x+dx)[0] > 0) {
+                            let dstPixel = dst.ucharPtr(y+dy, x+dx);
+                            dstPixel[0] = matchPixel[0];
+                            dstPixel[1] = matchPixel[1];
+                            dstPixel[2] = matchPixel[2];
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          // 显示结果
+          cv.imshow(canvas, dst);
+          
+          // 释放内存
+          dst.delete();
+        }
+        
+        // 释放内存
+        resultMat.delete();
+        
+        // 隐藏加载中提示
+        loadingOverlay.style.display = 'none';
+        
+      } catch (e) {
+        console.error("水印去除处理错误:", e);
+        alert("处理失败，错误信息: " + e.message);
+        // 隐藏加载中提示
+        document.getElementById('loadingOverlay').style.display = 'none';
+      }
+    });
+    
     // 点击“重置”按钮，恢复原图并清空遮罩
     resetBtn.addEventListener('click', function() {
       if (!imgElement) return;
@@ -122,6 +847,11 @@
         maskMat.setTo(new cv.Scalar(0));
       }
     });
+    function onOpenCvReady() {
+      document.getElementById('status').innerHTML = 'OpenCV.js is ready.';
+    }
   </script>
+  <script async src="https://docs.opencv.org/4.5.5/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+
 </body>
 </html>
